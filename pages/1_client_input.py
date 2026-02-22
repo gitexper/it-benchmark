@@ -115,7 +115,8 @@ def show():
     financials = st.session_state.get("sec_financials")
     prefill = st.session_state.get("sec_prefill", {})
     detected_industry = prefill.get("industry")
-    industry_supported = detected_industry in SUPPORTED_INDUSTRIES if detected_industry else None
+    has_sic = bool(prefill.get("sic"))  # We found a SIC code from SEC
+    industry_supported = detected_industry in SUPPORTED_INDUSTRIES if detected_industry else False
 
     if financials and not financials.get("error"):
         fiscal_year = financials.get("fiscal_year", "N/A")
@@ -140,8 +141,8 @@ def show():
                 source_link = f" — [{source}]({url})" if source and url else (f" — {source}" if source else "")
                 st.markdown(f"**{i}.** {title}{source_link}")
 
-        # Unsupported industry warning
-        if detected_industry and not industry_supported:
+        # Unsupported industry warning — block form if SIC is known but not in our supported list
+        if has_sic and not industry_supported:
             sic_code = prefill.get("sic", "")
             st.divider()
             st.warning(
