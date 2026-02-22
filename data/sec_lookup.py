@@ -20,20 +20,38 @@ SIC_INDUSTRY_MAP = {
     range(8000, 8100): "healthcare",
 }
 
-# IT-relevant keywords for strategic context extraction
+# IT-relevant keyword phrases for strategic context extraction.
+# These are multi-word phrases to reduce false positives from generic words like "technology".
 IT_KEYWORDS = [
-    "technology", "cybersecurity", "cyber security", "cloud computing", "cloud migration",
-    "digital transformation", "artificial intelligence", "machine learning",
-    "automation", "data analytics", "software", "infrastructure modernization",
-    "information security", "data center", "SaaS", "IT spending", "IT investment",
-    "technology budget", "tech spend", "information technology",
-    "digital", "DevOps", "API", "data governance", "systems integration",
-    "tech modernization", "generative AI", "GenAI", "data platform",
-    "enterprise architecture", "IT infrastructure", "IT operations",
-    "technology risk", "technology transformation", "IT workforce",
-    "cloud infrastructure", "application modernization", "legacy systems",
-    "technology strategy", "cyber threat", "ransomware", "data breach",
-    "IT outsourcing", "managed services", "technology vendor",
+    # Spending / investment signals
+    "technology spend", "technology investment", "IT spend", "IT investment",
+    "technology budget", "tech spend", "invested in technology",
+    "technology expenditure", "spent on technology",
+    # Cloud & infrastructure
+    "cloud computing", "cloud migration", "cloud infrastructure", "cloud-based",
+    "public cloud", "private cloud", "hybrid cloud", "cloud services",
+    "data center", "infrastructure modernization", "legacy systems",
+    "application modernization", "systems modernization",
+    # Cybersecurity
+    "cybersecurity", "cyber security", "information security", "cyber threat",
+    "ransomware", "data breach", "security incident", "cyber risk",
+    "security posture", "zero trust",
+    # AI & analytics
+    "artificial intelligence", "machine learning", "generative AI", "GenAI",
+    "data analytics", "advanced analytics", "predictive analytics",
+    "large language model",
+    # Digital & transformation
+    "digital transformation", "digital strategy", "digital capabilities",
+    "digital platform", "digital initiative",
+    # IT operations & workforce
+    "IT workforce", "IT operations", "IT outsourcing", "managed services",
+    "technology vendor", "technology partner", "systems integration",
+    "DevOps", "agile transformation", "enterprise architecture",
+    "technology strategy", "technology platform", "technology modernization",
+    "technology risk", "operational resilience", "technology resilience",
+    # Software & SaaS
+    "SaaS", "software-as-a-service", "software platform",
+    "automation", "robotic process automation", "RPA",
 ]
 
 
@@ -288,15 +306,16 @@ def get_strategic_context(cik: str, max_items: int = 5) -> list[str]:
     except Exception:
         return ["Could not download the 10-K filing."]
 
-    # Parse HTML and extract text
+    # Parse HTML — strip tables first (they produce garbage text)
     soup = BeautifulSoup(text, "html.parser")
+    for table in soup.find_all("table"):
+        table.decompose()
     full_text = soup.get_text(separator=" ", strip=True)
 
     # Clean up whitespace
     full_text = re.sub(r"\s+", " ", full_text)
 
-    # Extract sentences containing IT-relevant keywords
-    # Split into sentences (rough heuristic)
+    # Split into sentences
     sentences = re.split(r"(?<=[.!?])\s+", full_text)
 
     relevant = []
@@ -308,22 +327,52 @@ def get_strategic_context(cik: str, max_items: int = 5) -> list[str]:
 
     for sentence in sentences:
         sentence = sentence.strip()
-        if len(sentence) < 30 or len(sentence) > 800:
+
+        # Length filter — too short = heading, too long = run-on from bad HTML
+        if len(sentence) < 50 or len(sentence) > 600:
             continue
-        # Truncate very long sentences for display
-        if len(sentence) > 400:
-            sentence = sentence[:400].rsplit(" ", 1)[0] + "..."
+
+        # Skip sentences that are mostly numbers/symbols (financial tables, ratios)
+        alpha_chars = sum(1 for c in sentence if c.isalpha())
+        if alpha_chars < len(sentence) * 0.5:
+            continue
+
+        # Skip boilerplate / legal language
+        lower = sentence.lower()
+        if any(skip in lower for skip in [
+            "incorporated by reference", "item 1a", "item 1b",
+            "table of contents", "form 10-k", "page ",
+            "securities and exchange commission", "see note",
+            "the following table", "basis points",
+            "tier 1 capital", "tier 2 capital", "risk-weighted assets",
+            "capital ratio", "the accompanying notes",
+        ]):
+            continue
 
         if keyword_pattern.search(sentence):
-            # Check for duplicates (fuzzy)
+            # Check for duplicates
             snippet_key = sentence[:80].lower()
             if snippet_key not in seen_snippets:
                 seen_snippets.add(snippet_key)
-                # Score by number of keyword matches
-                match_count = len(keyword_pattern.findall(sentence))
-                relevant.append((match_count, sentence))
 
-    # Sort by relevance (most keyword matches first)
+                # Truncate for display
+                display = sentence
+                if len(display) > 350:
+                    display = display[:350].rsplit(" ", 1)[0] + "..."
+
+                # Score: keyword matches + bonus for strategic language
+                match_count = len(keyword_pattern.findall(sentence))
+                # Bonus for sentences with spending/investment language
+                if re.search(r"\$[\d,.]+\s*(billion|million|B|M)", sentence, re.IGNORECASE):
+                    match_count += 2
+                if re.search(r"invest(ed|ing|ment)|spend(ing)?|budget|commit", lower):
+                    match_count += 1
+                if re.search(r"strateg(y|ic)|priorit(y|ize)|initiative|transform", lower):
+                    match_count += 1
+
+                relevant.append((match_count, display))
+
+    # Sort by relevance score
     relevant.sort(key=lambda x: x[0], reverse=True)
 
     # Return top N
