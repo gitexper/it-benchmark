@@ -12,25 +12,29 @@ def show():
         "The analysis will compare these against industry benchmarks."
     )
 
+    # ── Industry selector (OUTSIDE the form so sub-verticals update live) ──
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        industry_keys = list(INDUSTRIES.keys())
+        industry_names = [INDUSTRIES[k]["name"] for k in industry_keys]
+        selected_industry_name = st.selectbox("Industry", industry_names, index=0)
+        selected_industry = industry_keys[industry_names.index(selected_industry_name)]
+    with col2:
+        sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
+        sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
+    with col3:
+        st.markdown("")  # spacer
+
+    st.divider()
+
     with st.form("client_input_form"):
         # ── Company Profile ────────────────────────────────────────
         st.subheader("Company Profile")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             company_name = st.text_input(
                 "Company Name", value=st.session_state.get("client_data", {}).get("company_name", "")
             )
-
-            # Industry selector
-            industry_keys = list(INDUSTRIES.keys())
-            industry_names = [INDUSTRIES[k]["name"] for k in industry_keys]
-            selected_industry_name = st.selectbox("Industry", industry_names, index=0)
-            selected_industry = industry_keys[industry_names.index(selected_industry_name)]
-
-            # Dynamic sub-verticals based on industry
-            sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
-            sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
-
         with col2:
             revenue = st.number_input(
                 "Annual Revenue ($)",
@@ -40,6 +44,7 @@ def show():
                 format="%d",
                 help="Total annual revenue in USD",
             )
+        with col3:
             total_employees = st.number_input(
                 "Total Employees",
                 min_value=0,
