@@ -26,17 +26,19 @@ def format_value(value, unit, fmt):
 
 
 def show():
-    st.header("📊 Benchmark Results Dashboard")
+    st.header("Benchmark Results Dashboard")
 
     if not st.session_state.get("analysis_run"):
-        st.info("👈 Enter client data on the **Client Input** page first, then return here.")
+        st.info("Enter client data on the **Client Input** page first, then return here.")
         return
 
     client_data = st.session_state["client_data"]
     company_name = client_data.get("company_name", "Client")
+    industry = client_data.get("industry", "financial_services")
+    industry_name = client_data.get("industry_name", "Financial Services")
 
-    # Run analysis
-    results = run_full_analysis(client_data)
+    # Run analysis with selected industry
+    results = run_full_analysis(client_data, industry=industry)
     st.session_state["analysis_results"] = results
 
     if not results:
@@ -47,7 +49,7 @@ def show():
 
     # ── Header ─────────────────────────────────────────────────────
     st.subheader(f"Benchmarking Report: {company_name}")
-    st.caption(f"Industry: Financial Services — {client_data.get('sub_vertical', 'N/A')}")
+    st.caption(f"Industry: {industry_name} — {client_data.get('sub_vertical', 'N/A')}")
 
     # ── Summary Scorecard ──────────────────────────────────────────
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -69,13 +71,13 @@ def show():
         # Quick interpretation
         score = summary["avg_score"]
         if score >= 75:
-            st.success("🟢 **Strong overall positioning** — you outperform most peers.")
+            st.success("**Strong overall positioning** — you outperform most peers.")
         elif score >= 50:
-            st.info("🟡 **Solid positioning** — performing at or above the industry median.")
+            st.info("**Solid positioning** — performing at or above the industry median.")
         elif score >= 25:
-            st.warning("🟠 **Room for improvement** — several metrics trail the median.")
+            st.warning("**Room for improvement** — several metrics trail the median.")
         else:
-            st.error("🔴 **Significant gaps** — most metrics are below industry benchmarks.")
+            st.error("**Significant gaps** — most metrics are below industry benchmarks.")
 
     with col_right:
         radar = create_radar_chart(results)
@@ -90,7 +92,7 @@ def show():
     st.divider()
 
     # ── Detailed Table ─────────────────────────────────────────────
-    st.subheader("📋 Detailed Comparison Table")
+    st.subheader("Detailed Comparison Table")
 
     table_data = []
     for r in results:
@@ -121,7 +123,7 @@ def show():
 
     # ── Key Findings ───────────────────────────────────────────────
     st.divider()
-    st.subheader("🔑 Key Findings")
+    st.subheader("Key Findings")
 
     # Strengths (top quartile)
     strengths = [r for r in results if r["quartile"] == "top_quartile"]
@@ -129,17 +131,17 @@ def show():
     opportunities = [r for r in results if r["quartile"] == "below_median"]
 
     if strengths:
-        st.markdown("**💪 Strengths (Top Quartile)**")
+        st.markdown("**Strengths (Top Quartile)**")
         for r in strengths:
             st.markdown(f"- **{r['name']}**: {format_value(r['value'], r['unit'], r['format'])} — {r['insight']}")
 
     if weaknesses:
-        st.markdown("**⚠️ Areas of Concern (Bottom Quartile)**")
+        st.markdown("**Areas of Concern (Bottom Quartile)**")
         for r in weaknesses:
             st.markdown(f"- **{r['name']}**: {format_value(r['value'], r['unit'], r['format'])} — {r['insight']}")
 
     if opportunities:
-        st.markdown("**📈 Improvement Opportunities (Below Median)**")
+        st.markdown("**Improvement Opportunities (Below Median)**")
         for r in opportunities:
             st.markdown(f"- **{r['name']}**: {format_value(r['value'], r['unit'], r['format'])} — {r['insight']}")
 

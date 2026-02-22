@@ -1,7 +1,7 @@
 """
 Analysis engine — computes derived metrics, quartile positioning, and normalized scores.
 """
-from data.benchmarks import BENCHMARKS, METRIC_ORDER
+from data.benchmarks import get_benchmarks, METRIC_ORDER
 
 
 def compute_derived_metrics(client_data: dict) -> dict:
@@ -77,19 +77,17 @@ def compute_derived_metrics(client_data: dict) -> dict:
     return {k: v for k, v in results.items() if v is not None}
 
 
-def get_quartile_position(metric_id: str, value: float) -> str:
+def get_quartile_position(bench: dict, value: float) -> str:
     """
     Determine which quartile the client falls in for a given metric.
     Returns one of: 'top_quartile', 'above_median', 'below_median', 'bottom_quartile'
     """
-    bench = BENCHMARKS[metric_id]
     tq = bench["top_quartile"]
     med = bench["median"]
     bq = bench["bottom_quartile"]
     direction = bench["direction"]
 
     if direction == "lower_is_better":
-        # top_quartile < median < bottom_quartile
         if value <= tq:
             return "top_quartile"
         elif value <= med:
@@ -99,7 +97,6 @@ def get_quartile_position(metric_id: str, value: float) -> str:
         else:
             return "bottom_quartile"
     else:
-        # higher_is_better: top_quartile > median > bottom_quartile
         if value >= tq:
             return "top_quartile"
         elif value >= med:
@@ -110,60 +107,52 @@ def get_quartile_position(metric_id: str, value: float) -> str:
             return "bottom_quartile"
 
 
-def normalize_score(metric_id: str, value: float) -> float:
+def normalize_score(bench: dict, value: float) -> float:
     """
     Normalize a metric value to a 0-100 scale where:
     - 100 = at or beyond top quartile (best)
     - 50 = at median
     - 0 = at or beyond bottom quartile (worst)
     """
-    bench = BENCHMARKS[metric_id]
     tq = bench["top_quartile"]
     med = bench["median"]
     bq = bench["bottom_quartile"]
     direction = bench["direction"]
 
     if direction == "lower_is_better":
-        # Invert: lower value = higher score
         if value <= tq:
             return 100.0
         elif value >= bq:
             return 0.0
         elif value <= med:
-            # Between top quartile and median → 50-100
             range_val = med - tq
             if range_val == 0:
                 return 75.0
             return 50.0 + 50.0 * (med - value) / range_val
         else:
-            # Between median and bottom quartile → 0-50
             range_val = bq - med
             if range_val == 0:
                 return 25.0
             return 50.0 * (bq - value) / range_val
     else:
-        # Higher is better
         if value >= tq:
             return 100.0
         elif value <= bq:
             return 0.0
         elif value >= med:
-            # Between median and top quartile → 50-100
             range_val = tq - med
             if range_val == 0:
                 return 75.0
             return 50.0 + 50.0 * (value - med) / range_val
         else:
-            # Between bottom quartile and median → 0-50
             range_val = med - bq
             if range_val == 0:
                 return 25.0
             return 50.0 * (value - bq) / range_val
 
 
-def get_insight(metric_id: str, quartile: str) -> str:
+def get_insight(bench: dict, quartile: str) -> str:
     """Return contextual insight text based on quartile position."""
-    bench = BENCHMARKS[metric_id]
     if quartile in ("top_quartile", "above_median"):
         direction = bench["direction"]
         if direction == "lower_is_better":
@@ -179,9 +168,8 @@ def get_insight(metric_id: str, quartile: str) -> str:
     return bench["insight_aligned"]
 
 
-def get_delta_vs_median(metric_id: str, value: float) -> dict:
+def get_delta_vs_median(bench: dict, value: float) -> dict:
     """Calculate the delta between client value and median."""
-    bench = BENCHMARKS[metric_id]
     med = bench["median"]
     delta = value - med
     if med != 0:
@@ -191,24 +179,25 @@ def get_delta_vs_median(metric_id: str, value: float) -> dict:
     return {"delta": delta, "delta_pct": delta_pct}
 
 
-def run_full_analysis(client_data: dict) -> list[dict]:
+def run_full_analysis(client_data: dict, industry: str = "financial_services") -> list[dict]:
     """
     Run the complete analysis pipeline. Returns a list of result dicts,
     one per metric, in display order.
     """
+    benchmarks = get_benchmarks(industry)
     derived = compute_derived_metrics(client_data)
     results = []
 
     for metric_id in METRIC_ORDER:
-        if metric_id not in derived:
+        if metric_id not in derived or metric_id not in benchmarks:
             continue
 
-        bench = BENCHMARKS[metric_id]
+        bench = benchmarks[metric_id]
         value = derived[metric_id]
-        quartile = get_quartile_position(metric_id, value)
-        score = normalize_score(metric_id, value)
-        delta = get_delta_vs_median(metric_id, value)
-        insight = get_insight(metric_id, quartile)
+        quartile = get_quartile_position(bench, value)
+        score = normalize_score(bench, value)
+        delta = get_delta_vs_median(bench, value)
+        insight = get_insight(bench, quartile)
 
         results.append(
             {

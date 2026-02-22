@@ -2,13 +2,14 @@
 Page 1: Client Data Input Form
 """
 import streamlit as st
+from data.benchmarks import INDUSTRIES
 
 
 def show():
-    st.header("📋 Client Data Input")
+    st.header("Client Data Input")
     st.markdown(
         "Enter your client's IT metrics below. All dollar values in USD. "
-        "The analysis will compare these against Financial Services industry benchmarks."
+        "The analysis will compare these against industry benchmarks."
     )
 
     with st.form("client_input_form"):
@@ -19,11 +20,17 @@ def show():
             company_name = st.text_input(
                 "Company Name", value=st.session_state.get("client_data", {}).get("company_name", "")
             )
-            sub_vertical = st.selectbox(
-                "Sub-Vertical",
-                ["Banking", "Insurance", "Asset Management", "Fintech", "Other"],
-                index=0,
-            )
+
+            # Industry selector
+            industry_keys = list(INDUSTRIES.keys())
+            industry_names = [INDUSTRIES[k]["name"] for k in industry_keys]
+            selected_industry_name = st.selectbox("Industry", industry_names, index=0)
+            selected_industry = industry_keys[industry_names.index(selected_industry_name)]
+
+            # Dynamic sub-verticals based on industry
+            sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
+            sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
+
         with col2:
             revenue = st.number_input(
                 "Annual Revenue ($)",
@@ -137,7 +144,7 @@ def show():
                 "Run %",
                 min_value=0.0,
                 max_value=100.0,
-                value=float(st.session_state.get("client_data", {}).get("run_pct", 0)),
+                value=float(st.session_state.get("client_data", {}).get("run_pct", 0) or 0),
                 step=1.0,
                 help="Keep-the-lights-on operations",
             )
@@ -146,7 +153,7 @@ def show():
                 "Grow %",
                 min_value=0.0,
                 max_value=100.0,
-                value=float(st.session_state.get("client_data", {}).get("grow_pct", 0)),
+                value=float(st.session_state.get("client_data", {}).get("grow_pct", 0) or 0),
                 step=1.0,
                 help="Enhance existing capabilities",
             )
@@ -155,14 +162,14 @@ def show():
                 "Transform %",
                 min_value=0.0,
                 max_value=100.0,
-                value=float(st.session_state.get("client_data", {}).get("transform_pct", 0)),
+                value=float(st.session_state.get("client_data", {}).get("transform_pct", 0) or 0),
                 step=1.0,
                 help="New, transformative initiatives",
             )
 
         rgt_total = run_pct + grow_pct + transform_pct
         if rgt_total > 0 and abs(rgt_total - 100) > 1:
-            st.warning(f"⚠️ Run + Grow + Transform = {rgt_total:.0f}% (should be 100%)")
+            st.warning(f"Run + Grow + Transform = {rgt_total:.0f}% (should be 100%)")
 
         st.divider()
 
@@ -196,7 +203,7 @@ def show():
             helpdesk_cost = st.number_input(
                 "Help Desk Cost per Ticket ($)",
                 min_value=0.0,
-                value=float(st.session_state.get("client_data", {}).get("helpdesk_cost_per_ticket", 0)),
+                value=float(st.session_state.get("client_data", {}).get("helpdesk_cost_per_ticket", 0) or 0),
                 step=1.0,
                 format="%.0f",
             )
@@ -205,7 +212,7 @@ def show():
                 "IT Staff Attrition Rate (%)",
                 min_value=0.0,
                 max_value=100.0,
-                value=float(st.session_state.get("client_data", {}).get("it_attrition_rate", 0)),
+                value=float(st.session_state.get("client_data", {}).get("it_attrition_rate", 0) or 0),
                 step=0.5,
                 format="%.1f",
             )
@@ -214,7 +221,7 @@ def show():
 
         # ── Submit ─────────────────────────────────────────────────
         submitted = st.form_submit_button(
-            "🚀 Run Benchmark Analysis",
+            "Run Benchmark Analysis",
             type="primary",
             use_container_width=True,
         )
@@ -237,6 +244,8 @@ def show():
             else:
                 client_data = {
                     "company_name": company_name,
+                    "industry": selected_industry,
+                    "industry_name": selected_industry_name,
                     "sub_vertical": sub_vertical,
                     "revenue": revenue,
                     "total_employees": total_employees,
@@ -260,7 +269,7 @@ def show():
                 st.session_state["client_data"] = client_data
                 st.session_state["analysis_run"] = True
                 st.success(
-                    f"✅ Data saved for **{company_name}**. "
+                    f"Data saved for **{company_name}** ({selected_industry_name}). "
                     "Navigate to **Results Dashboard** to see the analysis."
                 )
 

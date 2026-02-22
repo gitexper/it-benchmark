@@ -1,5 +1,5 @@
 """
-IT Benchmarking Tool — Financial Services MVP
+IT Benchmarking Tool — Multi-Industry
 Main entry point.
 """
 import streamlit as st
@@ -20,15 +20,18 @@ nav = st.navigation([input_page, results_page, detail_page])
 
 # ── Sidebar branding ───────────────────────────────────────────────
 with st.sidebar:
-    st.title("📊 IT Benchmark")
-    st.caption("Financial Services Edition")
+    st.title("IT Benchmark")
+    st.caption("Multi-Industry Edition")
     st.divider()
 
     if st.session_state.get("client_data"):
         name = st.session_state["client_data"].get("company_name", "")
+        industry_name = st.session_state["client_data"].get("industry_name", "")
         if name:
             st.markdown(f"**Active Client:** {name}")
-        if st.button("🗑️ Clear Data", use_container_width=True):
+        if industry_name:
+            st.markdown(f"**Industry:** {industry_name}")
+        if st.button("Clear Data", use_container_width=True):
             for key in ["client_data", "analysis_run", "analysis_results"]:
                 st.session_state.pop(key, None)
             st.rerun()
@@ -38,7 +41,8 @@ with st.sidebar:
     st.divider()
     st.caption(
         "Benchmarks sourced from Gartner, Avasant, "
-        "APQC, McKinsey, IANS Research, MetricNet. "
+        "APQC, McKinsey, HIMSS, CHIME, KLAS, "
+        "IANS Research, MetricNet. "
         "2024 baseline data."
     )
 

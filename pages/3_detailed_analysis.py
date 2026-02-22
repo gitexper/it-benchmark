@@ -4,7 +4,7 @@ Page 3: Detailed Analysis — drill into each metric with context and insights.
 import streamlit as st
 from analysis.engine import run_full_analysis
 from charts.plots import create_metric_bar_chart, COLORS, QUARTILE_LABELS
-from data.benchmarks import CATEGORIES
+from data.benchmarks import CATEGORIES, get_benchmarks
 
 
 def format_value(value, unit, fmt):
@@ -20,21 +20,26 @@ def format_value(value, unit, fmt):
 
 
 def show():
-    st.header("🔍 Detailed Metric Analysis")
+    st.header("Detailed Metric Analysis")
 
     if not st.session_state.get("analysis_run"):
-        st.info("👈 Enter client data on the **Client Input** page first, then return here.")
+        st.info("Enter client data on the **Client Input** page first, then return here.")
         return
 
     client_data = st.session_state["client_data"]
     company_name = client_data.get("company_name", "Client")
-    results = run_full_analysis(client_data)
+    industry = client_data.get("industry", "financial_services")
+    industry_name = client_data.get("industry_name", "Financial Services")
+    results = run_full_analysis(client_data, industry=industry)
 
     if not results:
         st.warning("No metrics could be computed. Please check the input data.")
         return
 
-    st.caption(f"Detailed analysis for **{company_name}** — Financial Services benchmarks")
+    st.caption(f"Detailed analysis for **{company_name}** — {industry_name} benchmarks")
+
+    # Get benchmark data for description lookups
+    benchmarks = get_benchmarks(industry)
 
     # Group results by category
     results_by_category = {}
@@ -44,12 +49,22 @@ def show():
             results_by_category[cat] = []
         results_by_category[cat].append(r)
 
+    # Category icons
+    cat_icons = {
+        "Spend": "Spend",
+        "Staffing": "Staffing",
+        "Budget Allocation": "Budget Allocation",
+        "Technology Mix": "Technology Mix",
+        "Cost Structure": "Cost Structure",
+        "Operations": "Operations",
+    }
+
     # Display by category
     for category in CATEGORIES:
         if category not in results_by_category:
             continue
 
-        st.subheader(f"{'📊' if category == 'Spend' else '👥' if category == 'Staffing' else '💰' if category == 'Budget Allocation' else '☁️' if category == 'Technology Mix' else '🏗️' if category == 'Cost Structure' else '⚙️'} {category}")
+        st.subheader(cat_icons.get(category, category))
 
         for r in results_by_category[category]:
             quartile = r["quartile"]
@@ -82,11 +97,10 @@ def show():
                 st.markdown(f"**Analysis:** {r['insight']}")
 
                 # What this metric means
-                from data.benchmarks import BENCHMARKS
-
-                bench = BENCHMARKS[r["metric_id"]]
-                st.caption(f"📖 *{bench['description']}*")
-                st.caption(f"📚 Source: {r['source']}")
+                bench = benchmarks.get(r["metric_id"], {})
+                if "description" in bench:
+                    st.caption(f"*{bench['description']}*")
+                st.caption(f"Source: {r['source']}")
 
         st.divider()
 
