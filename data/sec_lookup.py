@@ -52,130 +52,61 @@ def sic_to_industry(sic_code: str) -> str | None:
 def search_company(name: str) -> list[dict]:
     """
     Search SEC EDGAR for companies matching the given name.
+    Uses company_tickers.json which contains only parent entities with tickers.
     Returns list of dicts: [{name, cik, ticker, sic, industry}]
     """
     if not name or len(name.strip()) < 2:
         return []
 
-    # Primary: use the EDGAR company search (browse-edgar with Atom output)
-    url = "https://www.sec.gov/cgi-bin/browse-edgar"
-    params = {
-        "company": name,
-        "CIK": "",
-        "type": "10-K",
-        "dateb": "",
-        "owner": "include",
-        "count": "10",
-        "search_text": "",
-        "action": "getcompany",
-        "output": "atom",
-    }
+    search_term = name.strip().upper()
+
+    # Primary: use company_tickers.json — only parent entities with tickers
     try:
-        resp = requests.get(url, params=params, headers=SEC_HEADERS, timeout=10)
+        resp = requests.get(
+            "https://www.sec.gov/files/company_tickers.json",
+            headers=SEC_HEADERS, timeout=10,
+        )
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        entries = soup.find_all("entry")
-        results = []
-        for entry in entries[:10]:
-            title = entry.find("title")
-            if not title:
-                continue
-            text = title.get_text()
-            # Parse "COMPANY NAME (CIK)" format
-            match = re.match(r"(.+?)\s*\((\d+)\)", text)
-            if match:
-                company_name = match.group(1).strip()
-                cik = match.group(2)
-            else:
-                company_name = text.strip()
-                cik_tag = entry.find("cik")
-                cik = cik_tag.get_text() if cik_tag else ""
-
-            if cik:
-                results.append({
-                    "name": company_name,
-                    "cik": cik.lstrip("0"),
-                    "ticker": "",
-                    "sic": "",
-                    "industry": None,
-                })
+        all_tickers = resp.json()
     except Exception:
-        results = []
+        all_tickers = {}
 
-    if not results:
-        # Fallback: try the EFTS full-text search
-        results = _search_efts_fallback(name)
+    # Search by company name (fuzzy) and by ticker (exact)
+    seen_ciks = set()
+    results = []
+    for entry in all_tickers.values():
+        title = entry.get("title", "")
+        ticker = entry.get("ticker", "")
+        cik = str(entry.get("cik_str", ""))
 
-    # Enrich with SIC and ticker from submissions endpoint
-    # and filter out subsidiaries that don't file 10-Ks (no XBRL data)
-    enriched = []
-    for r in results[:10]:
+        if not cik or cik in seen_ciks:
+            continue
+
+        # Match: search term in company name, or exact ticker match
+        if search_term in title.upper() or search_term == ticker.upper():
+            seen_ciks.add(cik)
+            results.append({
+                "name": title,
+                "cik": cik,
+                "ticker": ticker,
+                "sic": "",
+                "industry": None,
+            })
+
+        if len(results) >= 10:
+            break
+
+    # Enrich with SIC and industry from submissions endpoint (first 5 only for speed)
+    for r in results[:5]:
         try:
             sub = _get_submissions(r["cik"])
             r["sic"] = sub.get("sic", "")
             r["industry"] = sic_to_industry(r["sic"])
-            tickers = sub.get("tickers", [])
-            if tickers:
-                r["ticker"] = tickers[0]
-            # Use the official company name from submissions
+            # Use official name from submissions if available
             if sub.get("name"):
                 r["name"] = sub["name"]
-            # Check if this entity actually files 10-Ks (has XBRL data)
-            recent_forms = sub.get("filings", {}).get("recent", {}).get("form", [])
-            r["_has_10k"] = any(f in ("10-K", "10-K/A") for f in recent_forms[:20])
-            r["_has_ticker"] = bool(tickers)
         except Exception:
-            r["_has_10k"] = False
-            r["_has_ticker"] = False
-        enriched.append(r)
-
-    # Sort: prioritize entities with tickers and 10-K filings (parent companies)
-    enriched.sort(key=lambda r: (r.get("_has_ticker", False), r.get("_has_10k", False)), reverse=True)
-
-    # Clean up internal flags
-    for r in enriched:
-        r.pop("_has_10k", None)
-        r.pop("_has_ticker", None)
-
-    return enriched[:10]
-
-
-def _search_efts_fallback(name: str) -> list[dict]:
-    """Fallback search using the EFTS full-text search index."""
-    url = "https://efts.sec.gov/LATEST/search-index"
-    params = {
-        "q": f'"{name}"',
-        "forms": "10-K",
-    }
-    try:
-        resp = requests.get(url, params=params, headers=SEC_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        return []
-
-    hits = data.get("hits", {}).get("hits", [])
-    seen_ciks = set()
-    results = []
-    for hit in hits[:20]:
-        source = hit.get("_source", {})
-        # EFTS uses "ciks" (array), not "entity_id"
-        cik_list = source.get("ciks", [])
-        if not cik_list:
-            continue
-        cik = str(cik_list[0]).lstrip("0")
-        if not cik or cik in seen_ciks:
-            continue
-        seen_ciks.add(cik)
-        display_names = source.get("display_names", [])
-        entity_name = display_names[0] if display_names else name
-        results.append({
-            "name": entity_name,
-            "cik": cik,
-            "ticker": "",
-            "sic": "",
-            "industry": None,
-        })
+            pass
 
     return results
 

@@ -5,6 +5,9 @@ import streamlit as st
 from data.benchmarks import INDUSTRIES
 from data.sec_lookup import search_company, get_financials, get_strategic_context, sic_to_industry
 
+# Industries we have benchmark data for
+SUPPORTED_INDUSTRIES = set(INDUSTRIES.keys())
+
 
 def _format_dollars(val):
     """Format a large dollar amount for display."""
@@ -28,17 +31,17 @@ def show():
     # ── SEC Lookup Section ─────────────────────────────────────────
     st.subheader("Company Lookup")
     st.caption(
-        "Public companies: search SEC EDGAR to auto-fill financials. Private companies: skip and enter manually.  \n"
-        "Industry auto-detection currently supports **Financial Services** and **Healthcare**. "
-        "Other industries will still pull financials but you'll need to select the industry manually."
+        "Search any public company to auto-fill financials and see IT-relevant trends from their 10-K.  \n"
+        "Benchmarking is currently available for **Financial Services** and **Healthcare**. "
+        "Other sectors will show financials and strategic context but cannot be benchmarked yet."
     )
 
     lookup_col1, lookup_col2 = st.columns([3, 1])
     with lookup_col1:
         search_name = st.text_input(
-            "Search Company Name",
+            "Search Company Name or Ticker",
             value=st.session_state.get("search_name", ""),
-            placeholder="e.g., JPMorgan, UnitedHealth, Wells Fargo...",
+            placeholder="e.g., JPMorgan, UAL, UnitedHealth, WMT...",
             key="search_input",
         )
     with lookup_col2:
@@ -87,7 +90,7 @@ def show():
                         st.session_state["sec_context"] = context
 
                         # Pre-fill session state for form defaults
-                        prefill = st.session_state.get("sec_prefill", {})
+                        prefill = {}
                         prefill["company_name"] = financials.get("company_name", selected["name"])
                         if financials.get("revenue"):
                             prefill["revenue"] = financials["revenue"]
@@ -101,11 +104,18 @@ def show():
                         if detected_industry:
                             prefill["industry"] = detected_industry
 
+                        # Store SIC for display even if not in our supported list
+                        prefill["sic"] = financials.get("sic", selected.get("sic", ""))
+
                         st.session_state["sec_prefill"] = prefill
                         st.rerun()
 
     # Show pre-filled info
     financials = st.session_state.get("sec_financials")
+    prefill = st.session_state.get("sec_prefill", {})
+    detected_industry = prefill.get("industry")
+    industry_supported = detected_industry in SUPPORTED_INDUSTRIES if detected_industry else None
+
     if financials and not financials.get("error"):
         fiscal_year = financials.get("fiscal_year", "N/A")
         rev = _format_dollars(financials.get("revenue"))
@@ -128,20 +138,31 @@ def show():
                 st.subheader("IT-Relevant Trends from 10-K")
                 for i, item in enumerate(context, 1):
                     st.markdown(f"**{i}.** {item}")
+
+        # Unsupported industry warning
+        if detected_industry and not industry_supported:
+            sic_code = prefill.get("sic", "")
+            st.divider()
+            st.warning(
+                f"**Sector not yet supported for benchmarking.** "
+                f"This company's SIC code ({sic_code}) does not map to a sector we have benchmark data for. "
+                f"We currently support **Financial Services** and **Healthcare**. "
+                f"The financials and strategic context above are still useful for your analysis — "
+                f"benchmarking for additional sectors is coming soon."
+            )
+            st.stop()
+
     elif financials and financials.get("error"):
         st.warning(f"Could not pull financials: {financials['error']}")
 
     st.divider()
 
     # ── Industry selector ──────────────────────────────────────────
-    prefill = st.session_state.get("sec_prefill", {})
-    detected_industry = prefill.get("industry")
-
     industry_keys = list(INDUSTRIES.keys())
     industry_names = [INDUSTRIES[k]["name"] for k in industry_keys]
 
-    if detected_industry and detected_industry in industry_keys:
-        # Industry was auto-detected — show as confirmation, still let them override
+    if detected_industry and industry_supported:
+        # Industry was auto-detected and supported — show as confirmation
         default_idx = industry_keys.index(detected_industry)
         detected_name = INDUSTRIES[detected_industry]["name"]
         st.markdown(f"**Industry:** {detected_name} *(auto-detected from SEC filing — change below if incorrect)*")
@@ -158,7 +179,7 @@ def show():
                 sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
                 sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
     else:
-        # No auto-detect — user must pick
+        # No auto-detect or not from SEC — user must pick
         col1, col2, col3 = st.columns(3)
         with col1:
             selected_industry_name = st.selectbox(
