@@ -89,9 +89,13 @@ def search_company(name: str) -> list[dict]:
     except Exception:
         all_tickers = {}
 
-    # Search by company name (fuzzy) and by ticker (exact)
+    # Search by company name (word-boundary match) and by ticker (exact)
     seen_ciks = set()
     results = []
+    # Build a regex that matches the search term as whole words
+    # This prevents "UAL" from matching "QUALCOMM"
+    word_pattern = re.compile(r"\b" + re.escape(search_term) + r"\b", re.IGNORECASE)
+
     for entry in all_tickers.values():
         title = entry.get("title", "")
         ticker = entry.get("ticker", "")
@@ -100,8 +104,8 @@ def search_company(name: str) -> list[dict]:
         if not cik or cik in seen_ciks:
             continue
 
-        # Match: search term in company name, or exact ticker match
-        if search_term in title.upper() or search_term == ticker.upper():
+        # Match: search term as whole word(s) in company name, or exact ticker match
+        if word_pattern.search(title) or search_term == ticker.upper():
             seen_ciks.add(cik)
             results.append({
                 "name": title,
