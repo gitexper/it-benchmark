@@ -27,6 +27,13 @@ IT_KEYWORDS = [
     "automation", "data analytics", "software", "infrastructure modernization",
     "information security", "data center", "SaaS", "IT spending", "IT investment",
     "technology budget", "tech spend", "information technology",
+    "digital", "DevOps", "API", "data governance", "systems integration",
+    "tech modernization", "generative AI", "GenAI", "data platform",
+    "enterprise architecture", "IT infrastructure", "IT operations",
+    "technology risk", "technology transformation", "IT workforce",
+    "cloud infrastructure", "application modernization", "legacy systems",
+    "technology strategy", "cyber threat", "ransomware", "data breach",
+    "IT outsourcing", "managed services", "technology vendor",
 ]
 
 
@@ -99,8 +106,10 @@ def search_company(name: str) -> list[dict]:
         # Fallback: try the EFTS full-text search
         results = _search_efts_fallback(name)
 
-    # Enrich with SIC and ticker from submissions endpoint (for first 5 results)
-    for r in results[:5]:
+    # Enrich with SIC and ticker from submissions endpoint
+    # and filter out subsidiaries that don't file 10-Ks (no XBRL data)
+    enriched = []
+    for r in results[:10]:
         try:
             sub = _get_submissions(r["cik"])
             r["sic"] = sub.get("sic", "")
@@ -111,10 +120,24 @@ def search_company(name: str) -> list[dict]:
             # Use the official company name from submissions
             if sub.get("name"):
                 r["name"] = sub["name"]
+            # Check if this entity actually files 10-Ks (has XBRL data)
+            recent_forms = sub.get("filings", {}).get("recent", {}).get("form", [])
+            r["_has_10k"] = any(f in ("10-K", "10-K/A") for f in recent_forms[:20])
+            r["_has_ticker"] = bool(tickers)
         except Exception:
-            pass
+            r["_has_10k"] = False
+            r["_has_ticker"] = False
+        enriched.append(r)
 
-    return results[:10]
+    # Sort: prioritize entities with tickers and 10-K filings (parent companies)
+    enriched.sort(key=lambda r: (r.get("_has_ticker", False), r.get("_has_10k", False)), reverse=True)
+
+    # Clean up internal flags
+    for r in enriched:
+        r.pop("_has_10k", None)
+        r.pop("_has_ticker", None)
+
+    return enriched[:10]
 
 
 def _search_efts_fallback(name: str) -> list[dict]:
@@ -354,8 +377,11 @@ def get_strategic_context(cik: str, max_items: int = 5) -> list[str]:
 
     for sentence in sentences:
         sentence = sentence.strip()
-        if len(sentence) < 40 or len(sentence) > 500:
+        if len(sentence) < 30 or len(sentence) > 800:
             continue
+        # Truncate very long sentences for display
+        if len(sentence) > 400:
+            sentence = sentence[:400].rsplit(" ", 1)[0] + "..."
 
         if keyword_pattern.search(sentence):
             # Check for duplicates (fuzzy)

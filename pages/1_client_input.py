@@ -50,10 +50,14 @@ def show():
         st.session_state["search_name"] = search_name
         with st.spinner("Searching SEC EDGAR..."):
             results = search_company(search_name)
+            # Clear ALL old state so stale data doesn't persist
             st.session_state["sec_search_results"] = results
             st.session_state["sec_selected"] = None
+            st.session_state["sec_selected_cik"] = None
             st.session_state["sec_financials"] = None
             st.session_state["sec_context"] = None
+            st.session_state["sec_prefill"] = {}
+            st.session_state.pop("company_select", None)
 
     # Show search results
     if st.session_state.get("sec_search_results"):
@@ -114,19 +118,22 @@ def show():
             f"Revenue {rev}  |  Employees {emp}  |  OpEx {opex}  |  Total Assets {assets}"
         )
 
-        # Strategic context
+        # Strategic context — IT-relevant trends from 10-K
         context = st.session_state.get("sec_context", [])
-        if context and context[0] != "No IT-relevant strategic context found in the latest 10-K.":
-            with st.expander("Strategic Context from 10-K (IT-relevant excerpts)", expanded=False):
+        if context:
+            no_results_msg = "No IT-relevant strategic context found in the latest 10-K."
+            if context[0] == no_results_msg:
+                st.info("No IT-relevant strategic context found in this filing.")
+            else:
+                st.subheader("IT-Relevant Trends from 10-K")
                 for i, item in enumerate(context, 1):
-                    st.markdown(f"{i}. {item}")
+                    st.markdown(f"**{i}.** {item}")
     elif financials and financials.get("error"):
         st.warning(f"Could not pull financials: {financials['error']}")
 
     st.divider()
 
     # ── Industry selector ──────────────────────────────────────────
-    # Auto-detect from SEC or let user pick
     prefill = st.session_state.get("sec_prefill", {})
     detected_industry = prefill.get("industry")
 
@@ -134,25 +141,37 @@ def show():
     industry_names = [INDUSTRIES[k]["name"] for k in industry_keys]
 
     if detected_industry and detected_industry in industry_keys:
+        # Industry was auto-detected — show as confirmation, still let them override
         default_idx = industry_keys.index(detected_industry)
-        auto_label = f" (auto-detected from SEC filing)"
+        detected_name = INDUSTRIES[detected_industry]["name"]
+        st.markdown(f"**Industry:** {detected_name} *(auto-detected from SEC filing — change below if incorrect)*")
+        with st.expander("Change Industry / Sub-Vertical", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                selected_industry_name = st.selectbox(
+                    "Industry",
+                    industry_names,
+                    index=default_idx,
+                )
+                selected_industry = industry_keys[industry_names.index(selected_industry_name)]
+            with col2:
+                sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
+                sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
     else:
-        default_idx = 0
-        auto_label = ""
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        selected_industry_name = st.selectbox(
-            f"Industry{auto_label}",
-            industry_names,
-            index=default_idx,
-        )
-        selected_industry = industry_keys[industry_names.index(selected_industry_name)]
-    with col2:
-        sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
-        sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
-    with col3:
-        st.markdown("")
+        # No auto-detect — user must pick
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            selected_industry_name = st.selectbox(
+                "Industry",
+                industry_names,
+                index=0,
+            )
+            selected_industry = industry_keys[industry_names.index(selected_industry_name)]
+        with col2:
+            sub_verticals = INDUSTRIES[selected_industry]["sub_verticals"]
+            sub_vertical = st.selectbox("Sub-Vertical", sub_verticals, index=0)
+        with col3:
+            st.markdown("")
 
     st.divider()
 
