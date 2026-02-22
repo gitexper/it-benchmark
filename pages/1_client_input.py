@@ -82,16 +82,17 @@ def show():
 
                 # Only fetch if we haven't already for this CIK
                 if st.session_state.get("sec_selected_cik") != cik:
-                    with st.spinner("Pulling financials from latest 10-K..."):
+                    with st.spinner("Pulling financials and IT insights..."):
                         financials = get_financials(cik)
-                        context = get_strategic_context(cik)
+                        company_display_name = financials.get("company_name", selected["name"])
+                        context = get_strategic_context(company_display_name)
                         st.session_state["sec_selected_cik"] = cik
                         st.session_state["sec_financials"] = financials
                         st.session_state["sec_context"] = context
 
                         # Pre-fill session state for form defaults
                         prefill = {}
-                        prefill["company_name"] = financials.get("company_name", selected["name"])
+                        prefill["company_name"] = company_display_name
                         if financials.get("revenue"):
                             prefill["revenue"] = financials["revenue"]
                         if financials.get("employees"):
@@ -128,16 +129,16 @@ def show():
             f"Revenue {rev}  |  Employees {emp}  |  OpEx {opex}  |  Total Assets {assets}"
         )
 
-        # Strategic context — IT-relevant trends from 10-K
+        # IT strategy news and insights
         context = st.session_state.get("sec_context", [])
         if context:
-            no_results_msg = "No IT-relevant strategic context found in the latest 10-K."
-            if context[0] == no_results_msg:
-                st.info("No IT-relevant strategic context found in this filing.")
-            else:
-                st.subheader("IT-Relevant Trends from 10-K")
-                for i, item in enumerate(context, 1):
-                    st.markdown(f"**{i}.** {item}")
+            st.subheader("Recent IT & Technology News")
+            for i, article in enumerate(context, 1):
+                title = article.get("title", "")
+                source = article.get("source", "")
+                url = article.get("url", "")
+                source_link = f" — [{source}]({url})" if source and url else (f" — {source}" if source else "")
+                st.markdown(f"**{i}.** {title}{source_link}")
 
         # Unsupported industry warning
         if detected_industry and not industry_supported:

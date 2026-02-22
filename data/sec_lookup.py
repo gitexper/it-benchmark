@@ -270,115 +270,83 @@ def _get_latest_fiscal_year(us_gaap: dict, dei: dict) -> str:
     return "N/A"
 
 
-def get_strategic_context(cik: str, max_items: int = 5) -> list[str]:
+def get_strategic_context(company_name: str, max_items: int = 5) -> list[dict]:
     """
-    Extract IT-relevant strategic context from the latest 10-K filing.
-    Returns a list of relevant text excerpts.
+    Find recent IT spending and technology strategy news for a company.
+    Uses Google News RSS to find relevant articles.
+    Returns a list of dicts: [{title, source, url, date}]
     """
-    try:
-        sub = _get_submissions(cik)
-    except Exception:
-        return ["Could not retrieve filing information."]
+    import warnings
+    from bs4 import XMLParsedAsHTMLWarning
+    warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-    # Find the most recent 10-K filing
-    recent = sub.get("filings", {}).get("recent", {})
-    forms = recent.get("form", [])
-    accessions = recent.get("accessionNumber", [])
-    primary_docs = recent.get("primaryDocument", [])
+    # Clean up company name for search (remove Inc., Corp., etc.)
+    clean_name = re.sub(r"\b(inc|corp|co|ltd|llc|plc|group|holdings)\b\.?", "", company_name, flags=re.IGNORECASE).strip()
+    clean_name = re.sub(r"\s+", " ", clean_name).strip()
+    # Remove trailing punctuation
+    clean_name = clean_name.rstrip(" ,&/")
 
-    filing_url = None
-    for i, form in enumerate(forms):
-        if form in ("10-K", "10-K/A"):
-            accession = accessions[i].replace("-", "")
-            doc = primary_docs[i]
-            padded_cik = cik.zfill(10)
-            filing_url = f"https://www.sec.gov/Archives/edgar/data/{padded_cik}/{accession}/{doc}"
-            break
+    # Search Google News RSS for IT/technology news about this company
+    search_queries = [
+        f"{clean_name} technology spending IT budget AI investment",
+        f"{clean_name} cybersecurity cloud digital transformation",
+    ]
 
-    if not filing_url:
-        return ["No 10-K filing found."]
+    all_articles = []
+    seen_titles = set()
 
-    # Download the filing
-    try:
-        resp = requests.get(filing_url, headers=SEC_HEADERS, timeout=20)
-        resp.raise_for_status()
-        text = resp.text
-    except Exception:
-        return ["Could not download the 10-K filing."]
+    for query in search_queries:
+        encoded = query.replace(" ", "+")
+        url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
 
-    # Parse HTML — strip tables first (they produce garbage text)
-    soup = BeautifulSoup(text, "html.parser")
-    for table in soup.find_all("table"):
-        table.decompose()
-    full_text = soup.get_text(separator=" ", strip=True)
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.find_all("item")
 
-    # Clean up whitespace
-    full_text = re.sub(r"\s+", " ", full_text)
+            for item in items[:15]:
+                title_tag = item.find("title")
+                raw_title = title_tag.text.strip() if title_tag else ""
+                if not raw_title or raw_title.lower() in seen_titles:
+                    continue
 
-    # Split into sentences
-    sentences = re.split(r"(?<=[.!?])\s+", full_text)
+                # Google News titles end with " - Source Name"
+                # Parse the source name from the title
+                source_name = ""
+                title = raw_title
+                title_match = re.match(r"^(.+)\s+-\s+(.+)$", raw_title)
+                if title_match:
+                    title = title_match.group(1).strip()
+                    source_name = title_match.group(2).strip()
 
-    relevant = []
-    seen_snippets = set()
-    keyword_pattern = re.compile(
-        "|".join(re.escape(kw) for kw in IT_KEYWORDS),
-        re.IGNORECASE,
-    )
+                source_tag = item.find("source")
+                source_url = source_tag.get("url", "") if source_tag else ""
+                # Fallback: get source name from tag if not parsed from title
+                if not source_name and source_tag and source_tag.next_sibling:
+                    source_name = str(source_tag.next_sibling).strip()
 
-    for sentence in sentences:
-        sentence = sentence.strip()
+                pubdate_tag = item.find("pubdate")
+                date_str = pubdate_tag.text.strip() if pubdate_tag else ""
 
-        # Length filter — too short = heading, too long = run-on from bad HTML
-        if len(sentence) < 50 or len(sentence) > 600:
+                # Filter: title must mention the company (at least partially)
+                name_parts = clean_name.upper().split()
+                first_word = name_parts[0] if name_parts else ""
+                if first_word and first_word not in raw_title.upper():
+                    continue
+
+                seen_titles.add(raw_title.lower())
+                all_articles.append({
+                    "title": title,
+                    "source": source_name,
+                    "url": source_url,
+                    "date": date_str,
+                })
+        except Exception:
             continue
 
-        # Skip sentences that are mostly numbers/symbols (financial tables, ratios)
-        alpha_chars = sum(1 for c in sentence if c.isalpha())
-        if alpha_chars < len(sentence) * 0.5:
-            continue
+    if not all_articles:
+        return []
 
-        # Skip boilerplate / legal language
-        lower = sentence.lower()
-        if any(skip in lower for skip in [
-            "incorporated by reference", "item 1a", "item 1b",
-            "table of contents", "form 10-k", "page ",
-            "securities and exchange commission", "see note",
-            "the following table", "basis points",
-            "tier 1 capital", "tier 2 capital", "risk-weighted assets",
-            "capital ratio", "the accompanying notes",
-        ]):
-            continue
-
-        if keyword_pattern.search(sentence):
-            # Check for duplicates
-            snippet_key = sentence[:80].lower()
-            if snippet_key not in seen_snippets:
-                seen_snippets.add(snippet_key)
-
-                # Truncate for display
-                display = sentence
-                if len(display) > 350:
-                    display = display[:350].rsplit(" ", 1)[0] + "..."
-
-                # Score: keyword matches + bonus for strategic language
-                match_count = len(keyword_pattern.findall(sentence))
-                # Bonus for sentences with spending/investment language
-                if re.search(r"\$[\d,.]+\s*(billion|million|B|M)", sentence, re.IGNORECASE):
-                    match_count += 2
-                if re.search(r"invest(ed|ing|ment)|spend(ing)?|budget|commit", lower):
-                    match_count += 1
-                if re.search(r"strateg(y|ic)|priorit(y|ize)|initiative|transform", lower):
-                    match_count += 1
-
-                relevant.append((match_count, display))
-
-    # Sort by relevance score
-    relevant.sort(key=lambda x: x[0], reverse=True)
-
-    # Return top N
-    results = [item[1] for item in relevant[:max_items]]
-
-    if not results:
-        return ["No IT-relevant strategic context found in the latest 10-K."]
-
-    return results
+    # Return the top N most recent (they come sorted by relevance from Google)
+    return all_articles[:max_items]
