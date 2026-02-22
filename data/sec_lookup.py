@@ -50,62 +50,7 @@ def search_company(name: str) -> list[dict]:
     if not name or len(name.strip()) < 2:
         return []
 
-    # Use the EDGAR full-text search to find companies with 10-K filings
-    url = "https://efts.sec.gov/LATEST/search-index"
-    params = {
-        "q": f'"{name}"',
-        "dateRange": "custom",
-        "startdt": "2023-01-01",
-        "forms": "10-K",
-    }
-
-    try:
-        resp = requests.get(url, params=params, headers=SEC_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        # Fallback: try the company tickers JSON
-        return _search_company_fallback(name)
-
-    hits = data.get("hits", {}).get("hits", [])
-    if not hits:
-        return _search_company_fallback(name)
-
-    # Deduplicate by CIK
-    seen_ciks = set()
-    results = []
-    for hit in hits[:20]:
-        source = hit.get("_source", {})
-        cik = str(source.get("entity_id", "")).lstrip("0")
-        if not cik or cik in seen_ciks:
-            continue
-        seen_ciks.add(cik)
-        entity_name = source.get("display_names", [source.get("entity_name", name)])[0]
-        results.append({
-            "name": entity_name,
-            "cik": cik,
-            "ticker": "",
-            "sic": "",
-            "industry": None,
-        })
-
-    # Enrich with SIC from submissions endpoint (for first 5 results)
-    for r in results[:5]:
-        try:
-            sub = _get_submissions(r["cik"])
-            r["sic"] = sub.get("sic", "")
-            r["industry"] = sic_to_industry(r["sic"])
-            tickers = sub.get("tickers", [])
-            if tickers:
-                r["ticker"] = tickers[0]
-        except Exception:
-            pass
-
-    return results[:10]
-
-
-def _search_company_fallback(name: str) -> list[dict]:
-    """Fallback search using the company tickers endpoint."""
+    # Primary: use the EDGAR company search (browse-edgar with Atom output)
     url = "https://www.sec.gov/cgi-bin/browse-edgar"
     params = {
         "company": name,
@@ -147,9 +92,69 @@ def _search_company_fallback(name: str) -> list[dict]:
                     "sic": "",
                     "industry": None,
                 })
-        return results
+    except Exception:
+        results = []
+
+    if not results:
+        # Fallback: try the EFTS full-text search
+        results = _search_efts_fallback(name)
+
+    # Enrich with SIC and ticker from submissions endpoint (for first 5 results)
+    for r in results[:5]:
+        try:
+            sub = _get_submissions(r["cik"])
+            r["sic"] = sub.get("sic", "")
+            r["industry"] = sic_to_industry(r["sic"])
+            tickers = sub.get("tickers", [])
+            if tickers:
+                r["ticker"] = tickers[0]
+            # Use the official company name from submissions
+            if sub.get("name"):
+                r["name"] = sub["name"]
+        except Exception:
+            pass
+
+    return results[:10]
+
+
+def _search_efts_fallback(name: str) -> list[dict]:
+    """Fallback search using the EFTS full-text search index."""
+    url = "https://efts.sec.gov/LATEST/search-index"
+    params = {
+        "q": f'"{name}"',
+        "forms": "10-K",
+    }
+    try:
+        resp = requests.get(url, params=params, headers=SEC_HEADERS, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
     except Exception:
         return []
+
+    hits = data.get("hits", {}).get("hits", [])
+    seen_ciks = set()
+    results = []
+    for hit in hits[:20]:
+        source = hit.get("_source", {})
+        # EFTS uses "ciks" (array), not "entity_id"
+        cik_list = source.get("ciks", [])
+        if not cik_list:
+            continue
+        cik = str(cik_list[0]).lstrip("0")
+        if not cik or cik in seen_ciks:
+            continue
+        seen_ciks.add(cik)
+        display_names = source.get("display_names", [])
+        entity_name = display_names[0] if display_names else name
+        results.append({
+            "name": entity_name,
+            "cik": cik,
+            "ticker": "",
+            "sic": "",
+            "industry": None,
+        })
+
+    return results
 
 
 def _get_submissions(cik: str) -> dict:

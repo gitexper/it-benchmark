@@ -27,7 +27,11 @@ def show():
 
     # ── SEC Lookup Section ─────────────────────────────────────────
     st.subheader("Company Lookup")
-    st.caption("Public companies: search SEC EDGAR to auto-fill financials. Private companies: skip and enter manually.")
+    st.caption(
+        "Public companies: search SEC EDGAR to auto-fill financials. Private companies: skip and enter manually.  \n"
+        "Industry auto-detection currently supports **Financial Services** and **Healthcare**. "
+        "Other industries will still pull financials but you'll need to select the industry manually."
+    )
 
     lookup_col1, lookup_col2 = st.columns([3, 1])
     with lookup_col1:
