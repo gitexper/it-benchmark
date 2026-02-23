@@ -321,11 +321,17 @@ def get_strategic_context(company_name: str, max_items: int = 5) -> list[dict]:
                     title = title_match.group(1).strip()
                     source_name = title_match.group(2).strip()
 
+                # Article URL: in Google News RSS, <link/> is self-closing and the
+                # actual URL is the text node immediately after it
+                link_tag = item.find("link")
+                article_url = ""
+                if link_tag and link_tag.next_sibling:
+                    article_url = str(link_tag.next_sibling).strip()
+
                 source_tag = item.find("source")
-                source_url = source_tag.get("url", "") if source_tag else ""
                 # Fallback: get source name from tag if not parsed from title
-                if not source_name and source_tag and source_tag.next_sibling:
-                    source_name = str(source_tag.next_sibling).strip()
+                if not source_name and source_tag and source_tag.text:
+                    source_name = source_tag.text.strip()
 
                 pubdate_tag = item.find("pubdate")
                 date_str = pubdate_tag.text.strip() if pubdate_tag else ""
@@ -340,7 +346,7 @@ def get_strategic_context(company_name: str, max_items: int = 5) -> list[dict]:
                 all_articles.append({
                     "title": title,
                     "source": source_name,
-                    "url": source_url,
+                    "url": article_url,
                     "date": date_str,
                 })
         except Exception:
