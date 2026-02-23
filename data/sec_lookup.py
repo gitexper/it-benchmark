@@ -174,10 +174,10 @@ def get_financials(cik: str) -> dict:
         "PremiumsEarnedNet",  # insurance
         "NetInterestIncome",  # banks fallback
     ]
-    result["revenue"] = _get_latest_annual(us_gaap, revenue_tags)
+    result["revenue"], rev_end = _get_latest_annual(us_gaap, revenue_tags)
 
     # Employees
-    result["employees"] = _get_latest_annual(dei, ["EntityNumberOfEmployees"])
+    result["employees"], _ = _get_latest_annual(dei, ["EntityNumberOfEmployees"])
 
     # Operating Expenses
     opex_tags = [
@@ -187,13 +187,13 @@ def get_financials(cik: str) -> dict:
         "BenefitsLossesAndExpenses",  # insurance
         "OperatingCostsAndExpenses",
     ]
-    result["operating_expenses"] = _get_latest_annual(us_gaap, opex_tags)
+    result["operating_expenses"], _ = _get_latest_annual(us_gaap, opex_tags)
 
     # Total Assets
-    result["total_assets"] = _get_latest_annual(us_gaap, ["Assets"])
+    result["total_assets"], assets_end = _get_latest_annual(us_gaap, ["Assets"])
 
-    # Get the fiscal year from the most recent data point
-    result["fiscal_year"] = _get_latest_fiscal_year(us_gaap, dei)
+    # Fiscal year: derive from the actual revenue/assets data we pulled
+    result["fiscal_year"] = _get_fiscal_year(dei, rev_end, assets_end)
 
     # Get SIC and industry
     try:
@@ -209,11 +209,15 @@ def get_financials(cik: str) -> dict:
     return result
 
 
-def _get_latest_annual(taxonomy: dict, tag_names: list[str]) -> int | None:
+def _get_latest_annual(taxonomy: dict, tag_names: list[str]) -> tuple[int, str] | tuple[None, str]:
     """
-    Extract the most recent annual (10-K) value for the first matching XBRL tag.
-    Returns the value as an integer, or None if not found.
+    Extract the most recent annual (10-K) value across all candidate XBRL tags.
+    Picks whichever tag has the newest end date, not just the first tag with data.
+    Returns (value_as_int, end_date_str) or (None, "") if not found.
     """
+    best_val = None
+    best_end = ""
+
     for tag in tag_names:
         concept = taxonomy.get(tag, {})
         units = concept.get("units", {})
@@ -228,29 +232,28 @@ def _get_latest_annual(taxonomy: dict, tag_names: list[str]) -> int | None:
                     values = units[first_unit]
                 continue
 
-            # Filter for 10-K annual filings (form = "10-K") and full-year periods
-            annual_values = []
-            for v in values:
-                form = v.get("form", "")
-                if form in ("10-K", "10-K/A"):
-                    # Prefer values with no "frame" that are full year (not quarterly)
-                    start = v.get("start", "")
-                    end = v.get("end", v.get("filed", ""))
-                    # Full-year check: start and end should be ~12 months apart
-                    annual_values.append(v)
+            # Filter for 10-K annual filings
+            annual_values = [v for v in values if v.get("form") in ("10-K", "10-K/A")]
 
             if annual_values:
                 # Sort by end date descending to get most recent
                 annual_values.sort(key=lambda x: x.get("end", x.get("filed", "")), reverse=True)
-                val = annual_values[0].get("val")
-                if val is not None:
-                    return int(val)
+                candidate = annual_values[0]
+                candidate_end = candidate.get("end", "")
+                candidate_val = candidate.get("val")
 
-    return None
+                # Keep this tag's value if it's newer than what we have
+                if candidate_val is not None and candidate_end > best_end:
+                    best_val = int(candidate_val)
+                    best_end = candidate_end
+
+    if best_val is not None:
+        return best_val, best_end
+    return None, ""
 
 
-def _get_latest_fiscal_year(us_gaap: dict, dei: dict) -> str:
-    """Try to determine the latest fiscal year from available data."""
+def _get_fiscal_year(dei: dict, rev_end: str, assets_end: str) -> str:
+    """Determine fiscal year from DEI field or from the actual data end dates."""
     # Check DocumentFiscalYearFocus first
     fiscal_year = dei.get("DocumentFiscalYearFocus", {})
     units = fiscal_year.get("units", {})
@@ -260,16 +263,10 @@ def _get_latest_fiscal_year(us_gaap: dict, dei: dict) -> str:
             if sorted_vals:
                 return str(sorted_vals[0].get("val", ""))
 
-    # Fallback: look at the most recent 10-K filing date
-    for tag in ["Revenues", "Assets"]:
-        concept = us_gaap.get(tag, {})
-        for unit_values in concept.get("units", {}).values():
-            annual = [v for v in unit_values if v.get("form") in ("10-K", "10-K/A")]
-            if annual:
-                annual.sort(key=lambda x: x.get("end", ""), reverse=True)
-                end_date = annual[0].get("end", "")
-                if end_date:
-                    return end_date[:4]
+    # Fallback: use the end date from the revenue or assets data we actually pulled
+    best_end = rev_end or assets_end
+    if best_end:
+        return best_end[:4]
 
     return "N/A"
 
