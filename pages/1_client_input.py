@@ -149,7 +149,7 @@ def show():
             st.warning(
                 f"**Sector not yet supported for benchmarking.** "
                 f"This company's SIC code ({sic_code}) does not map to a sector we have benchmark data for. "
-                f"We currently support **Financial Services** and **Healthcare**. "
+                f"We currently support: {supported_list}. "
                 f"The financials and strategic context above are still useful for your analysis — "
                 f"benchmarking for additional sectors is coming soon."
             )
