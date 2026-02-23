@@ -30,10 +30,11 @@ def show():
 
     # ── SEC Lookup Section ─────────────────────────────────────────
     st.subheader("Company Lookup")
+    supported_names = sorted(v["name"] for v in INDUSTRIES.values())
+    supported_list = ", ".join(f"**{n}**" for n in supported_names)
     st.caption(
-        "Search any public company to auto-fill financials and see IT-relevant trends from their 10-K.  \n"
-        "Benchmarking is currently available for **Financial Services** and **Healthcare**. "
-        "Other sectors will show financials and strategic context but cannot be benchmarked yet."
+        "Search any public company to auto-fill financials and see recent IT & technology news.  \n"
+        f"Benchmarking is available for: {supported_list}."
     )
 
     lookup_col1, lookup_col2 = st.columns([3, 1])

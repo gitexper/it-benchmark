@@ -13,11 +13,61 @@ SEC_HEADERS = {
 }
 
 # SIC code → industry mapping
+# NOTE: More specific ranges MUST come before broader ranges for correct matching.
 SIC_INDUSTRY_MAP = {
-    # Financial Services: SIC 6000-6999
-    range(6000, 7000): "financial_services",
-    # Healthcare: SIC 8000-8100
+    # ── Specific carve-outs (checked first) ──
+    # Pharma & Life Sciences: carved out from broad Manufacturing range
+    range(2830, 2837): "pharma_life_sciences", # Pharma, biologics, diagnostics
+    range(3841, 3846): "pharma_life_sciences", # Medical instruments & supplies
+
+    # Technology: carved out from broad Manufacturing range
+    range(3570, 3580): "technology",           # Computer equipment
+    range(3600, 3700): "technology",           # Electronic components, semiconductors
+    range(7370, 7380): "technology",           # Computer services, software, data processing
+
+    # Energy & Utilities: petroleum refining carved out from Manufacturing 2900s
+    range(2900, 3000): "energy_utilities",     # Petroleum refining
+
+    # Telecom & Media: publishing carved out from Manufacturing 2700s
+    range(2700, 2800): "telecom_media",        # Publishing
+
+    # ── Broad ranges ──
+    # Financial Services (Banking, Capital Markets)
+    range(6000, 6200): "financial_services",
+    range(6200, 6300): "financial_services",   # Security brokers, commodity contracts
+    range(6700, 7000): "financial_services",   # Holding/investment offices
+
+    # Insurance
+    range(6300, 6400): "insurance",            # Insurance carriers
+    range(6400, 6412): "insurance",            # Insurance agents/brokers
+
+    # Healthcare
     range(8000, 8100): "healthcare",
+
+    # Manufacturing (broad — specific carve-outs above take precedence)
+    range(2000, 2700): "manufacturing",        # Food, tobacco, textiles, lumber, furniture
+    range(2800, 2830): "manufacturing",        # Chemicals (non-pharma)
+    range(2837, 2900): "manufacturing",        # Chemicals continued
+    range(3000, 3570): "manufacturing",        # Rubber, stone, metals, machinery
+    range(3580, 3600): "manufacturing",        # Misc manufacturing
+    range(3700, 3841): "manufacturing",        # Transportation equipment, instruments
+    range(3846, 3900): "manufacturing",        # Misc instruments (non-medical)
+
+    # Retail & Consumer
+    range(5200, 5600): "retail",               # Retail stores
+    range(5600, 5900): "retail",               # Apparel, home furnishings, eating places
+    range(5900, 6000): "retail",               # Drug stores, liquor, other retail
+
+    # Energy & Utilities
+    range(1300, 1400): "energy_utilities",     # Oil & gas extraction
+    range(4900, 5000): "energy_utilities",     # Electric, gas, water, sanitary
+
+    # Telecom & Media
+    range(4800, 4900): "telecom_media",        # Telephone, telegraph, cable, radio/TV
+    range(7800, 7900): "telecom_media",        # Motion pictures
+
+    # Education
+    range(8200, 8300): "education",
 }
 
 # IT-relevant keyword phrases for strategic context extraction.
